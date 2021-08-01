@@ -1,0 +1,114 @@
+<h1>Play With Delay</h1>
+<h2>Settings</h2>
+<button id="pause">Pause Delay</button><br>
+<br>
+BPM: <input id="bpm" type="number" value="100"/><br/>
+Beats to delay (beats in measure): <input id="beats" type="number" value="6"/><br/>
+<button id="changeDelay">Update</button>
+<h2>Recording</h2>
+<span id="recTxt">Currently recording both mic input and delayed sound</span>
+<button id="recChange">Record only mic input</button><br>
+<button id="rec">Start Recording</button><br>
+Recordings (right click and click "Save Audio As..."): <br>
+<script>
+	// code is shit and full of bad practices todo clean up
+	let BEATS_IN_MEASURE = 6
+	let BPM = 120
+
+	let delay
+	let fileDelay
+
+	let context //mic
+	let fileDestination
+	let recording = false
+	let recordingBoth = true
+
+	const handleSuccess = stream => {
+		context = new AudioContext()
+		const source = context.createMediaStreamSource(stream)
+
+		delay = context.createDelay(179) //seconds
+		fileDelay = context.createDelay(179)
+		source.connect(delay)
+		source.connect(fileDelay)
+		delay.connect(context.destination)
+
+		delay.delayTime.value = (BEATS_IN_MEASURE * 60 / BPM) - context.outputLatency
+		fileDelay.delayTime.value = (BEATS_IN_MEASURE * 60 / BPM)
+
+		fileDestination = context.createMediaStreamDestination()
+		fileDelay.connect(fileDestination)
+		source.connect(fileDestination)
+		
+		const recorder = new MediaRecorder(fileDestination.stream)
+		let chunks = []
+		recorder.ondataavailable = evt => chunks.push(evt.data)
+		recorder.onstop = evt => {
+			const blob = new Blob(chunks, {type: "audio/ogg; codec=opus"})
+			//document.querySelector("audio").src = URL.createObjectURL(blob)
+			const audioElement = document.createElement("audio")
+			document.body.appendChild(audioElement)
+			audioElement.controls = true
+			audioElement.src = URL.createObjectURL(blob)
+			chunks = []
+			document.body.appendChild(document.createElement("br"))
+		}
+		document.querySelector("#pause").addEventListener("click", async e => {
+			if (context.state === "running") {
+				await context.suspend()
+				e.target.textContent = "Resume Delay"
+			} else {
+				await context.resume()
+				e.target.textContent = "Pause Delay"
+			}
+		})
+		document.querySelector("#recChange").addEventListener("click", e => {
+			if (recordingBoth) {
+				fileDelay.disconnect(fileDestination)
+				recordingBoth = false
+				e.target.textContent = "Record both mic input and delayed sound"
+				document.querySelector("#recTxt").textContent = "Currently recording only mic input"
+			} else {
+				fileDelay.connect(fileDestination)
+				recordingBoth = true
+				e.target.textContent = "Record only mic input"
+				document.querySelector("#recTxt").textContent = "Currently recording mic input and delayed sound"
+			}
+		})
+
+		document.querySelector("#rec").addEventListener("click", e => {
+			if (recording) {
+				recorder.stop()
+				e.target.textContent = "Start recording"
+				recording = false
+			} else {
+				recorder.start()
+				e.target.textContent = "Stop recording"
+				recording = true
+			}
+		})
+	}
+	navigator.mediaDevices.getUserMedia({audio: {
+		latency: 0.02,
+		echoCancellation: false,
+		autoGainControl: false,
+		noiseSuppression: false
+	}, video: false}).then(handleSuccess)
+
+	document.querySelector("#changeDelay").addEventListener("click", async () => {
+		await delay.disconnect(context.destination)
+		BPM = Number(document.querySelector("#bpm").value)
+		BEATS_IN_MEASURE = Number(document.querySelector("#beats").value)
+		delay.delayTime.value = (BEATS_IN_MEASURE * 60 / BPM) - context.outputLatency
+		await delay.connect(context.destination)
+
+		if (metronomeInterval) {
+			clearInterval(metronomeInterval)
+			metronomeInterval = 0
+			metronomeInterval = setInterval(() => {
+				metronomeSound.currentTime = 0
+				metronomeSound.play()
+			}, 60000 / BPM) // 60000 ms = 1 minute
+		}
+	})
+</script>
